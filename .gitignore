@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Frontend build
+client/dist/
+
+# Generated PDFs
+invoices/
+
+# Local data files (auto-generated on first run)
+data/invoices.json
+data/clients.json
+data/counter.json
+data/settings.json
