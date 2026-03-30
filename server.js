@@ -24,6 +24,24 @@ const FILES = {
   settings: path.join(DATA_DIR, 'settings.json'),
 };
 
+function initFile(filePath, defaultValue) {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2));
+  }
+}
+
+initFile(FILES.invoices, []);
+initFile(FILES.clients, []);
+initFile(FILES.counter, { next: 1 });
+initFile(FILES.settings, {
+  name: 'Joaquín Martorano Perozzi',
+  address: 'Belgrano 731',
+  city: '1876 Quilmes Oeste',
+  state: 'Buenos Aires',
+  country: 'Argentina',
+  email: 'yoakodesign@gmail.com',
+});
+
 function readJSON(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
