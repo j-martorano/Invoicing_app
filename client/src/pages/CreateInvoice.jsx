@@ -259,7 +259,6 @@ export default function CreateInvoice() {
                       <td className="r">
                         <input
                           type="number"
-                          min="0"
                           step="0.01"
                           value={item.rate}
                           onChange={e => updateItem(idx, 'rate', e.target.value)}
