@@ -84,7 +84,7 @@ app.put('/api/settings', (req, res) => {
 
 app.post('/api/invoices', async (req, res) => {
   try {
-    const { client: clientData, items, date, currencySymbol, upfrontPayment, notes } = req.body;
+    const { client: clientData, items, date, currencySymbol, upfrontPayment, discount, notes } = req.body;
 
     // Upsert client
     const clients = readJSON(FILES.clients);
@@ -107,11 +107,18 @@ app.post('/api/invoices', async (req, res) => {
 
     // Totals
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.rate, 0);
+    let discountAmount = 0;
+    if (discount?.enabled && discount.value > 0) {
+      discountAmount = discount.type === 'percentage'
+        ? subtotal * (discount.value / 100)
+        : discount.value;
+    }
+    const afterDiscount = subtotal - discountAmount;
     let upfrontAmount = 0;
     if (upfrontPayment?.enabled && upfrontPayment.percentage > 0) {
-      upfrontAmount = subtotal * (upfrontPayment.percentage / 100);
+      upfrontAmount = afterDiscount * (upfrontPayment.percentage / 100);
     }
-    const total = upfrontPayment?.enabled ? subtotal - upfrontAmount : subtotal;
+    const total = afterDiscount - upfrontAmount;
 
     const settings = readJSON(FILES.settings);
 
@@ -126,6 +133,7 @@ app.post('/api/invoices', async (req, res) => {
       items,
       currencySymbol,
       subtotal,
+      discount: discount?.enabled && discountAmount > 0 ? { ...discount, amount: discountAmount } : null,
       upfrontPayment: upfrontPayment?.enabled ? { ...upfrontPayment, amount: upfrontAmount } : null,
       total,
       notes,
@@ -142,6 +150,7 @@ app.post('/api/invoices', async (req, res) => {
       currencySymbol,
       items,
       subtotal,
+      discount: discount?.enabled && discountAmount > 0 ? { ...discount, amount: discountAmount } : null,
       upfrontPayment: upfrontPayment?.enabled ? { ...upfrontPayment, amount: upfrontAmount } : null,
       total,
       notes,
@@ -197,7 +206,7 @@ function fmtDate(dateStr) {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function buildInvoiceHTML({ id, date, client, items, currencySymbol, subtotal, upfrontPayment, total, notes, settings }) {
+function buildInvoiceHTML({ id, date, client, items, currencySymbol, subtotal, discount, upfrontPayment, total, notes, settings }) {
   const logo = getLogoBase64();
 
   const itemRows = items.map(item => `
@@ -211,10 +220,12 @@ function buildInvoiceHTML({ id, date, client, items, currencySymbol, subtotal, u
       <td class="r">${fmt(currencySymbol, item.quantity * item.rate)}</td>
     </tr>`).join('');
 
-  const totalsRows = upfrontPayment ? `
+  const hasBreakdown = discount || upfrontPayment;
+  const totalsRows = hasBreakdown ? `
     <div class="trow"><span class="tlabel">Subtotal:</span><span class="tamount">${fmt(currencySymbol, subtotal)}</span></div>
-    <div class="trow"><span class="tlabel">UPFRONT PAYMENT (${upfrontPayment.percentage}%):</span><span class="tamount">-${fmt(currencySymbol, upfrontPayment.amount)}</span></div>
-    <div class="trow"><span class="tlabel">Total:</span><span class="tamount">${fmt(currencySymbol, total)}</span></div>
+    ${discount ? `<div class="trow"><span class="tlabel">Discount${discount.type === 'percentage' ? ` (${discount.value}%)` : ''}:</span><span class="tamount">-${fmt(currencySymbol, discount.amount)}</span></div>` : ''}
+    ${upfrontPayment ? `<div class="trow"><span class="tlabel">Upfront payment (${upfrontPayment.percentage}%):</span><span class="tamount">-${fmt(currencySymbol, upfrontPayment.amount)}</span></div>` : ''}
+    <div class="trow total-final"><span class="tlabel">Total:</span><span class="tamount">${fmt(currencySymbol, total)}</span></div>
   ` : `
     <div class="trow"><span class="tlabel">Total:</span><span class="tamount">${fmt(currencySymbol, total)}</span></div>
   `;

@@ -33,6 +33,9 @@ export default function CreateInvoice() {
   const [items, setItems] = useState([newItem()]);
   const [upfrontEnabled, setUpfrontEnabled] = useState(false);
   const [upfrontPct, setUpfrontPct] = useState(50);
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountType, setDiscountType] = useState('percentage'); // 'percentage' | 'fixed'
+  const [discountValue, setDiscountValue] = useState(10);
   const [notes, setNotes] = useState('');
 
   // Client fields
@@ -80,8 +83,12 @@ export default function CreateInvoice() {
 
   // Totals
   const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.rate), 0);
-  const upfrontAmount = upfrontEnabled ? subtotal * (upfrontPct / 100) : 0;
-  const total = upfrontEnabled ? subtotal - upfrontAmount : subtotal;
+  const discountAmount = discountEnabled
+    ? (discountType === 'percentage' ? subtotal * (Number(discountValue) / 100) : Number(discountValue))
+    : 0;
+  const afterDiscount = subtotal - discountAmount;
+  const upfrontAmount = upfrontEnabled ? afterDiscount * (upfrontPct / 100) : 0;
+  const total = afterDiscount - upfrontAmount;
 
   function showToast(msg, type = 'success') {
     setToast({ msg, type });
@@ -111,6 +118,7 @@ export default function CreateInvoice() {
             rate: Number(it.rate),
           })),
           upfrontPayment: { enabled: upfrontEnabled, percentage: Number(upfrontPct) },
+          discount: { enabled: discountEnabled, type: discountType, value: Number(discountValue) },
           notes: notes.trim(),
         }),
       });
@@ -274,6 +282,41 @@ export default function CreateInvoice() {
               + Add Item
             </button>
 
+            {/* Discount toggle */}
+            <div className="upfront-row">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={discountEnabled}
+                  onChange={e => setDiscountEnabled(e.target.checked)}
+                />
+                Discount
+              </label>
+              {discountEnabled && (
+                <>
+                  <select
+                    value={discountType}
+                    onChange={e => setDiscountType(e.target.value)}
+                    style={{ width: 110 }}
+                  >
+                    <option value="percentage">Percentage (%)</option>
+                    <option value="fixed">Fixed ({currencySymbol})</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={discountValue}
+                    onChange={e => setDiscountValue(e.target.value)}
+                    style={{ width: 80 }}
+                  />
+                  <span style={{ color: '#888', fontSize: 13 }}>
+                    -{fmt(currencySymbol, discountAmount)}
+                  </span>
+                </>
+              )}
+            </div>
+
             {/* Upfront payment toggle */}
             <div className="upfront-row">
               <label>
@@ -296,24 +339,32 @@ export default function CreateInvoice() {
               )}
               {upfrontEnabled && (
                 <span style={{ color: '#888', fontSize: 13 }}>
-                  Client pays {fmt(currencySymbol, upfrontAmount)} now, {fmt(currencySymbol, subtotal - upfrontAmount)} on completion.
+                  Client pays {fmt(currencySymbol, upfrontAmount)} now, {fmt(currencySymbol, afterDiscount - upfrontAmount)} on completion.
                 </span>
               )}
             </div>
 
             {/* Totals */}
             <div className="totals-section">
+              {(discountEnabled || upfrontEnabled) && (
+                <div className="total-row">
+                  <span className="t-label">Subtotal</span>
+                  <span className="t-amount">{fmt(currencySymbol, subtotal)}</span>
+                </div>
+              )}
+              {discountEnabled && (
+                <div className="total-row">
+                  <span className="t-label">
+                    Discount {discountType === 'percentage' ? `(${discountValue}%)` : ''}
+                  </span>
+                  <span className="t-amount">–{fmt(currencySymbol, discountAmount)}</span>
+                </div>
+              )}
               {upfrontEnabled && (
-                <>
-                  <div className="total-row">
-                    <span className="t-label">Subtotal</span>
-                    <span className="t-amount">{fmt(currencySymbol, subtotal)}</span>
-                  </div>
-                  <div className="total-row">
-                    <span className="t-label">Upfront payment ({upfrontPct}%)</span>
-                    <span className="t-amount">–{fmt(currencySymbol, upfrontAmount)}</span>
-                  </div>
-                </>
+                <div className="total-row">
+                  <span className="t-label">Upfront payment ({upfrontPct}%)</span>
+                  <span className="t-amount">–{fmt(currencySymbol, upfrontAmount)}</span>
+                </div>
               )}
               <div className="total-row grand">
                 <span className="t-label">Total (Balance Due)</span>
