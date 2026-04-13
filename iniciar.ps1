@@ -14,7 +14,6 @@ if (-not (Test-Path "node_modules")) {
     Write-Host ""
     npm install
     npm install --prefix client
-    npm run build
     Clear-Host
     Write-Host ""
     Write-Host "  ================================================" -ForegroundColor DarkYellow
@@ -22,6 +21,11 @@ if (-not (Test-Path "node_modules")) {
     Write-Host "  ================================================" -ForegroundColor DarkYellow
     Write-Host ""
 }
+
+Write-Host "  Preparando la aplicacion..." -ForegroundColor Cyan
+npm run build --prefix client --silent
+Write-Host "  Listo." -ForegroundColor Cyan
+Write-Host ""
 
 # Si el puerto 3001 ya esta en uso, matar el proceso anterior
 $existing = Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -ErrorAction SilentlyContinue
