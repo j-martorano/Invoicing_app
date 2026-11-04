@@ -32,7 +32,9 @@ function initFile(filePath, defaultValue) {
 
 initFile(FILES.invoices, []);
 initFile(FILES.clients, []);
-initFile(FILES.counter, { next: 1 });
+initFile(FILES.counter, { byClient: {} });
+// Migrate the old global counter ({ next: N }) to per-client counters.
+if (!readJSON(FILES.counter).byClient) writeJSON(FILES.counter, { byClient: {} });
 initFile(FILES.settings, {
   name: 'Joaquín Martorano Perozzi',
   address: 'Belgrano 731',
@@ -82,6 +84,29 @@ app.put('/api/settings', (req, res) => {
   res.json(req.body);
 });
 
+// Per-client invoice counters. Each client code (first word of the name) has
+// its own sequence: pedrito-0001, pedrito-0002, jose-0001, ...
+app.get('/api/counter', (req, res) => {
+  res.json({ clients: listClientCounters() });
+});
+
+app.put('/api/counter', (req, res) => {
+  const input = req.body?.clients;
+  if (!input || typeof input !== 'object') {
+    return res.status(400).json({ error: 'Expected { clients: { code: nextNumber } }.' });
+  }
+  const counter = readJSON(FILES.counter);
+  for (const [code, value] of Object.entries(input)) {
+    const next = Number(value);
+    if (!Number.isInteger(next) || next < 1) {
+      return res.status(400).json({ error: `Next invoice number for "${code}" must be a positive integer.` });
+    }
+    counter.byClient[code] = next;
+  }
+  writeJSON(FILES.counter, counter);
+  res.json({ clients: listClientCounters() });
+});
+
 app.post('/api/invoices', async (req, res) => {
   try {
     const { client: clientData, items, date, currencySymbol, upfrontPayment, discount, notes } = req.body;
@@ -97,13 +122,29 @@ app.post('/api/invoices', async (req, res) => {
     }
     writeJSON(FILES.clients, clients);
 
-    // Invoice number
+    // Invoice number: per-client sequence, optionally overridden from the form
     const counter = readJSON(FILES.counter);
-    const invoiceNumber = counter.next;
-    counter.next++;
-    writeJSON(FILES.counter, counter);
+    const existing = readJSON(FILES.invoices);
+    const clientCode = clientCodeFromName(client.name);
 
-    const invoiceId = `INV-${String(invoiceNumber).padStart(5, '0')}`;
+    let invoiceNumber = nextNumberForClient(clientCode, counter, existing);
+    if (req.body.number != null && req.body.number !== '') {
+      const override = Number(req.body.number);
+      if (!Number.isInteger(override) || override < 1) {
+        return res.status(400).json({ error: 'Invoice number must be a positive integer.' });
+      }
+      invoiceNumber = override;
+    }
+
+    const invoiceId = buildInvoiceCode(client.name, invoiceNumber);
+    if (existing.some(inv => inv.id === invoiceId)) {
+      return res.status(409).json({
+        error: `Invoice ${invoiceId} already exists. Use a different invoice number.`,
+      });
+    }
+
+    counter.byClient[clientCode] = Math.max(counter.byClient[clientCode] || 1, invoiceNumber + 1);
+    writeJSON(FILES.counter, counter);
 
     // Totals
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.rate, 0);
@@ -158,9 +199,8 @@ app.post('/api/invoices', async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    const invoices = readJSON(FILES.invoices);
-    invoices.push(invoice);
-    writeJSON(FILES.invoices, invoices);
+    existing.push(invoice);
+    writeJSON(FILES.invoices, existing);
 
     res.json({ ...invoice, client });
   } catch (err) {
@@ -175,6 +215,59 @@ app.get('*', (req, res) => {
   if (fs.existsSync(index)) res.sendFile(index);
   else res.status(404).send('Run `npm run build` first or use the dev server.');
 });
+
+// ── Invoice code ──────────────────────────────────────────────────────────────
+// Format: {client}-0001 — first word of the client name, lowercased, alphanumeric
+// only, max 12 chars. Falls back to "client" if nothing usable remains.
+function clientCodeFromName(name) {
+  const first = String(name || '').trim().split(/\s+/)[0] || '';
+  const code = first.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
+  return code || 'client';
+}
+
+function buildInvoiceCode(clientName, number) {
+  return `${clientCodeFromName(clientName)}-${String(number).padStart(4, '0')}`;
+}
+
+// Highest number already used by invoices whose code follows the new
+// {client}-0001 format for this client code. Legacy INV-xxxxx invoices are ignored.
+function lastUsedForClient(code, invoices) {
+  const prefix = `${code}-`;
+  return invoices.reduce((max, inv) => {
+    if (typeof inv.id !== 'string' || !inv.id.startsWith(prefix)) return max;
+    return Math.max(max, Number(inv.number) || 0);
+  }, 0);
+}
+
+// Next number = the stored counter, but never below what was already used.
+function nextNumberForClient(code, counter, invoices) {
+  const stored = counter.byClient[code] || 1;
+  return Math.max(stored, lastUsedForClient(code, invoices) + 1);
+}
+
+// One row per client code: names sharing the code, last used and next number.
+function listClientCounters() {
+  const counter = readJSON(FILES.counter);
+  const clients = readJSON(FILES.clients);
+  const invoices = readJSON(FILES.invoices);
+  const byCode = new Map();
+  for (const c of clients) {
+    const code = clientCodeFromName(c.name);
+    if (!byCode.has(code)) byCode.set(code, []);
+    byCode.get(code).push(c.name);
+  }
+  for (const code of Object.keys(counter.byClient)) {
+    if (!byCode.has(code)) byCode.set(code, []);
+  }
+  return [...byCode.entries()]
+    .map(([code, names]) => ({
+      code,
+      names,
+      lastUsed: lastUsedForClient(code, invoices),
+      next: nextNumberForClient(code, counter, invoices),
+    }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+}
 
 // ── PDF ───────────────────────────────────────────────────────────────────────
 

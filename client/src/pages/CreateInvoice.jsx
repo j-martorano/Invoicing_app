@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { clientCodeFromName, pad4 } from '../lib/clientCode';
 
 const CURRENCIES = [
   { label: '$ (USD)', symbol: '$' },
@@ -24,6 +25,8 @@ function fmt(symbol, amount) {
 export default function CreateInvoice() {
   const navigate = useNavigate();
   const [clients, setClients] = useState([]);
+  const [counters, setCounters] = useState([]);       // [{ code, next, lastUsed }]
+  const [numberInput, setNumberInput] = useState('');  // '' = use the client's next number
   const [toast, setToast] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -47,6 +50,7 @@ export default function CreateInvoice() {
 
   useEffect(() => {
     fetch('/api/clients').then(r => r.json()).then(setClients).catch(() => {});
+    fetch('/api/counter').then(r => r.json()).then(d => setCounters(d.clients || [])).catch(() => {});
   }, []);
 
   // Close suggestions on outside click
@@ -61,6 +65,13 @@ export default function CreateInvoice() {
   const filteredClients = clientName.length > 0
     ? clients.filter(c => c.name.toLowerCase().includes(clientName.toLowerCase()))
     : [];
+
+  const clientCode = clientCodeFromName(clientName);
+  const counterRow = counters.find(c => c.code === clientCode);
+  const defaultNumber = counterRow ? counterRow.next : 1;
+  const parsedNumber = numberInput === '' ? defaultNumber : parseInt(numberInput, 10);
+  const numberValid = Number.isInteger(parsedNumber) && parsedNumber >= 1;
+  const numberReused = numberValid && counterRow && counterRow.lastUsed > 0 && parsedNumber <= counterRow.lastUsed;
 
   function selectClient(c) {
     setClientName(c.name);
@@ -100,6 +111,7 @@ export default function CreateInvoice() {
 
     if (!clientName.trim()) return showToast('Client name is required.', 'error');
     if (items.some(it => !it.name.trim())) return showToast('All items need a name.', 'error');
+    if (!numberValid) return showToast('Invoice number must be a positive integer.', 'error');
 
     setSubmitting(true);
 
@@ -110,6 +122,7 @@ export default function CreateInvoice() {
         body: JSON.stringify({
           date,
           currencySymbol,
+          number: parsedNumber,
           client: { name: clientName.trim(), address: clientAddress.trim(), country: clientCountry.trim() },
           items: items.map(it => ({
             name: it.name.trim(),
@@ -174,7 +187,7 @@ export default function CreateInvoice() {
                     type="text"
                     placeholder="e.g. Nameless Horse LLC"
                     value={clientName}
-                    onChange={e => { setClientName(e.target.value); setShowSuggestions(true); }}
+                    onChange={e => { setClientName(e.target.value); setNumberInput(''); setShowSuggestions(true); }}
                     onFocus={() => setShowSuggestions(true)}
                     autoComplete="off"
                     required
@@ -189,6 +202,25 @@ export default function CreateInvoice() {
                       ))}
                     </div>
                   )}
+                </div>
+              </label>
+              <label className="form-full">
+                Invoice number
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{clientCode}-</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={numberInput === '' ? defaultNumber : numberInput}
+                    onChange={e => setNumberInput(e.target.value)}
+                    style={{ width: 110, textAlign: 'right', borderColor: numberReused ? '#e8821e' : undefined }}
+                  />
+                  <span style={{ color: '#888', fontSize: 13, fontWeight: 400 }}>
+                    {numberValid ? <>Code: <strong>{clientCode}-{pad4(parsedNumber)}</strong></> : 'Enter a number of 1 or more'}
+                    {counterRow && counterRow.lastUsed > 0 && <> · last used for this client: {pad4(counterRow.lastUsed)}</>}
+                    {numberReused && <span style={{ color: '#a04a00' }}> · already used, will be rejected</span>}
+                  </span>
                 </div>
               </label>
               <label className="form-full">

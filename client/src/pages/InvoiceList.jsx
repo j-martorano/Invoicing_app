@@ -56,8 +56,8 @@ export default function InvoiceList() {
     }
 
     result.sort((a, b) => {
-      if (sortBy === 'newest') return b.number - a.number;
-      if (sortBy === 'oldest') return a.number - b.number;
+      if (sortBy === 'newest') return (b.createdAt || '').localeCompare(a.createdAt || '');
+      if (sortBy === 'oldest') return (a.createdAt || '').localeCompare(b.createdAt || '');
       if (sortBy === 'amount-high') return b.total - a.total;
       if (sortBy === 'amount-low') return a.total - b.total;
       return 0;
@@ -89,7 +89,10 @@ export default function InvoiceList() {
               : `${invoices.length} invoice${invoices.length !== 1 ? 's' : ''} total`}
           </p>
         </div>
-        <Link to="/create" className="btn btn-primary">+ New Invoice</Link>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Link to="/settings" className="btn btn-secondary">Settings</Link>
+          <Link to="/create" className="btn btn-primary">+ New Invoice</Link>
+        </div>
       </div>
 
       {/* Search & Filters */}
